@@ -1,0 +1,7 @@
+{
+  "user_archives": {
+    "ayse@contoso.com": "sx-mailbox-ayse",
+    "mehmet@contoso.com": "sx-mailbox-mehmet"
+  },
+  "compliance_archive_id": "sx-compliance"
+}

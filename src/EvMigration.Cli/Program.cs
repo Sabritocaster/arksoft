@@ -1,4 +1,5 @@
 using System.Text.Json;
+using EvMigration.Core.Discovery;
 using EvMigration.Core.Mock;
 using EvMigration.Core.Serialization;
 
@@ -8,31 +9,71 @@ if (args.Length == 0 || args[0] is "--help" or "-h")
     return 0;
 }
 
-if (!string.Equals(args[0], "generate", StringComparison.OrdinalIgnoreCase))
+try
 {
-    Console.Error.WriteLine($"Unknown command: {args[0]}");
-    PrintUsage();
-    return 2;
+    return args[0].ToLowerInvariant() switch
+    {
+        "generate" => await RunGenerateAsync(args[1..]),
+        "discover" => await RunDiscoverAsync(args[1..]),
+        _ => UnknownCommand(args[0])
+    };
+}
+catch (Exception exception) when (exception is ArgumentException
+                                  or IOException
+                                  or JsonException)
+{
+    Console.Error.WriteLine($"Error: {exception.Message}");
+    return 1;
 }
 
-var outputDirectory = "samples/generated";
-for (var index = 1; index < args.Length; index++)
+static async Task<int> RunGenerateAsync(string[] commandArguments)
 {
-    if (args[index] == "--output" && index + 1 < args.Length)
+    var options = ParseOptions(commandArguments, "--output");
+    var outputDirectory = options.GetValueOrDefault("--output", "samples/generated");
+    var result = await new MockEvDataGenerator().GenerateAsync(outputDirectory);
+
+    Console.WriteLine(JsonSerializer.Serialize(result, EvJson.Options));
+    return 0;
+}
+
+static async Task<int> RunDiscoverAsync(string[] commandArguments)
+{
+    var options = ParseOptions(commandArguments, "--source", "--mapping");
+    var sourcePath = options.GetValueOrDefault("--source", "samples/generated/ev-data.json");
+    var mappingPath = options.GetValueOrDefault("--mapping", "samples/target-archives.json");
+
+    var dataSet = await new EvDataSetLoader().LoadAsync(sourcePath);
+    var targetMap = await new TargetArchiveMapLoader().LoadAsync(mappingPath);
+    var report = new ArchiveDiscoveryService().Discover(dataSet, targetMap);
+
+    Console.WriteLine(JsonSerializer.Serialize(report, EvJson.Options));
+    return 0;
+}
+
+static Dictionary<string, string> ParseOptions(string[] arguments, params string[] allowedOptions)
+{
+    var allowed = allowedOptions.ToHashSet(StringComparer.Ordinal);
+    var parsed = new Dictionary<string, string>(StringComparer.Ordinal);
+
+    for (var index = 0; index < arguments.Length; index += 2)
     {
-        outputDirectory = args[++index];
-        continue;
+        if (index + 1 >= arguments.Length
+            || !allowed.Contains(arguments[index])
+            || !parsed.TryAdd(arguments[index], arguments[index + 1]))
+        {
+            throw new ArgumentException($"Unknown, duplicate or incomplete option: {arguments[index]}");
+        }
     }
 
-    Console.Error.WriteLine($"Unknown or incomplete option: {args[index]}");
+    return parsed;
+}
+
+static int UnknownCommand(string command)
+{
+    Console.Error.WriteLine($"Unknown command: {command}");
     PrintUsage();
     return 2;
 }
-
-var generator = new MockEvDataGenerator();
-var result = await generator.GenerateAsync(outputDirectory);
-Console.WriteLine(JsonSerializer.Serialize(result, EvJson.Options));
-return 0;
 
 static void PrintUsage()
 {
@@ -40,4 +81,5 @@ static void PrintUsage()
     Console.WriteLine();
     Console.WriteLine("Usage:");
     Console.WriteLine("  generate [--output <directory>]");
+    Console.WriteLine("  discover [--source <ev-data.json>] [--mapping <target-archives.json>]");
 }
