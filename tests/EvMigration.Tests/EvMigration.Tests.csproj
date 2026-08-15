@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\EvMigration.Core\EvMigration.Core.csproj" />
+    <ProjectReference Include="..\..\src\StorionX.MockApi\StorionX.MockApi.csproj" />
   </ItemGroup>
 
 </Project>
