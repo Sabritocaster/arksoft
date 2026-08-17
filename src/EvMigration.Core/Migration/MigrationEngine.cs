@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using EvMigration.Core.Ingestion;
 using EvMigration.Core.Models;
+using EvMigration.Core.Persistence;
 using EvMigration.Core.Rehydration;
 using EvMigration.Core.Transform;
 
@@ -15,12 +16,15 @@ public sealed class MigrationEngine
         string sourceRoot,
         IStorionXClient storionXClient,
         MigrationOptions? options = null,
+        IMigrationCheckpointStore? checkpointStore = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(dataSet);
         ArgumentNullException.ThrowIfNull(discovery);
         ArgumentNullException.ThrowIfNull(storionXClient);
         options ??= new MigrationOptions();
+        var startedAtUtc = DateTimeOffset.UtcNow;
+        var runId = Guid.NewGuid().ToString("N");
 
         if (options.WorkerCount <= 0)
         {
@@ -42,13 +46,24 @@ public sealed class MigrationEngine
         var eligibleItems = dataSet.Items
             .Where(item => targets.ContainsKey(item.ArchiveId))
             .ToArray();
+        if (checkpointStore is not null)
+        {
+            await checkpointStore.InitializeAsync(cancellationToken);
+        }
+
+        var migrationItems = eligibleItems
+            .Where(item => checkpointStore is null
+                           || !checkpointStore.IsCompleted(
+                               StorionXTransformer.CreateSourceItemId(item.ArchiveId, item.ItemId),
+                               targets[item.ArchiveId]))
+            .ToArray();
         var uploaded = 0;
         var existing = 0;
         var retryCount = 0;
         long migratedBytes = 0;
 
         await Parallel.ForEachAsync(
-            eligibleItems,
+            migrationItems,
             new ParallelOptions
             {
                 MaxDegreeOfParallelism = options.WorkerCount,
@@ -69,8 +84,26 @@ public sealed class MigrationEngine
 
                     if (result.Outcome == IngestOutcome.Failed)
                     {
-                        failures.Add(new MigrationFailure(item.ItemId, result.Error ?? "Ingest failed."));
+                        failures.Add(new MigrationFailure(
+                            item.ItemId,
+                            "ingestion",
+                            result.Error ?? "Ingest failed.",
+                            result.HttpStatusCode));
                         return;
+                    }
+
+                    if (checkpointStore is not null)
+                    {
+                        await checkpointStore.MarkCompletedAsync(
+                            new CheckpointItem
+                            {
+                                SourceItemId = request.SourceItemId,
+                                TargetArchiveId = request.TargetArchiveId,
+                                ContentSha256 = request.MessageSha256,
+                                Outcome = result.Outcome,
+                                CompletedAtUtc = DateTimeOffset.UtcNow
+                            },
+                            workerCancellationToken);
                     }
 
                     if (result.Outcome == IngestOutcome.Created)
@@ -93,16 +126,27 @@ public sealed class MigrationEngine
                                                   or HttpRequestException
                                                   or JsonException)
                 {
-                    failures.Add(new MigrationFailure(item.ItemId, exception.Message));
+                    failures.Add(new MigrationFailure(
+                        item.ItemId,
+                        GetErrorCategory(exception),
+                        exception.Message));
                 }
             });
 
+        var orderedFailures = failures
+            .OrderBy(failure => failure.ItemId, StringComparer.Ordinal)
+            .ToArray();
+
         return new MigrationReport
         {
+            RunId = runId,
+            StartedAtUtc = startedAtUtc,
+            CompletedAtUtc = DateTimeOffset.UtcNow,
             WorkerCount = options.WorkerCount,
             ScannedItemCount = dataSet.Items.Count,
             PendingMappingItemCount = dataSet.Items.Count - eligibleItems.Length,
-            AttemptedItemCount = eligibleItems.Length,
+            CheckpointSkippedItemCount = eligibleItems.Length - migrationItems.Length,
+            AttemptedItemCount = migrationItems.Length,
             UploadedItemCount = uploaded,
             ExistingItemCount = existing,
             FailedItemCount = failures.Count,
@@ -110,7 +154,19 @@ public sealed class MigrationEngine
             MigratedBytes = migratedBytes,
             PhysicalSisReads = rehydrator.PhysicalReadCount,
             CachedSisParts = rehydrator.CachedPartCount,
-            Failures = failures.OrderBy(failure => failure.ItemId, StringComparer.Ordinal).ToArray()
+            ErrorBreakdown = orderedFailures
+                .GroupBy(failure => failure.Category, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal),
+            Failures = orderedFailures
         };
     }
+
+    private static string GetErrorCategory(Exception exception) => exception switch
+    {
+        InvalidDataException => "source_validation",
+        HttpRequestException => "network",
+        JsonException => "serialization",
+        IOException => "io",
+        _ => "unknown"
+    };
 }

@@ -15,15 +15,25 @@ public sealed record StorionXIngestResult(
 
 public sealed record MigrationFailure(
     string ItemId,
-    string Error);
+    string Category,
+    string Error,
+    int? HttpStatusCode = null);
 
 public sealed record MigrationReport
 {
+    public required string RunId { get; init; }
+
+    public required DateTimeOffset StartedAtUtc { get; init; }
+
+    public required DateTimeOffset CompletedAtUtc { get; init; }
+
     public required int WorkerCount { get; init; }
 
     public required int ScannedItemCount { get; init; }
 
     public required int PendingMappingItemCount { get; init; }
+
+    public required int CheckpointSkippedItemCount { get; init; }
 
     public required int AttemptedItemCount { get; init; }
 
@@ -40,6 +50,8 @@ public sealed record MigrationReport
     public required int PhysicalSisReads { get; init; }
 
     public required int CachedSisParts { get; init; }
+
+    public required IReadOnlyDictionary<string, int> ErrorBreakdown { get; init; }
 
     public required IReadOnlyList<MigrationFailure> Failures { get; init; }
 }

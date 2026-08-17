@@ -4,6 +4,9 @@ namespace EvMigration.Core.Transform;
 
 public sealed class StorionXTransformer
 {
+    public static string CreateSourceItemId(string archiveId, string itemId) =>
+        $"ev:{archiveId}:{itemId}";
+
     public StorionXIngestRequest Transform(
         EvArchive archive,
         EvItem item,
@@ -23,7 +26,7 @@ public sealed class StorionXTransformer
         return new StorionXIngestRequest
         {
             TargetArchiveId = targetArchiveId,
-            SourceItemId = $"ev:{archive.ArchiveId}:{item.ItemId}",
+            SourceItemId = CreateSourceItemId(archive.ArchiveId, item.ItemId),
             MessageSha256 = rehydratedItem.ContentSha256,
             Parts = rehydratedItem.Parts
                 .Select(part => new StorionXContentPart

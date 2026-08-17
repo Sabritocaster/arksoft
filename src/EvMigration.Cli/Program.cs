@@ -3,7 +3,9 @@ using EvMigration.Core.Discovery;
 using EvMigration.Core.Ingestion;
 using EvMigration.Core.Migration;
 using EvMigration.Core.Mock;
+using EvMigration.Core.Persistence;
 using EvMigration.Core.Rehydration;
+using EvMigration.Core.Reporting;
 using EvMigration.Core.Serialization;
 
 if (args.Length == 0 || args[0] is "--help" or "-h")
@@ -87,14 +89,32 @@ static async Task<int> RunRehydrateAsync(string[] commandArguments)
 
 static async Task<int> RunMigrateAsync(string[] commandArguments)
 {
-    var options = ParseOptions(commandArguments, "--source", "--mapping", "--api", "--workers");
+    var options = ParseOptions(
+        commandArguments,
+        "--source",
+        "--mapping",
+        "--api",
+        "--workers",
+        "--checkpoint",
+        "--report");
     var sourcePath = options.GetValueOrDefault("--source", "samples/generated/ev-data.json");
     var mappingPath = options.GetValueOrDefault("--mapping", "samples/target-archives.json");
     var apiUrl = options.GetValueOrDefault("--api", "http://127.0.0.1:5099");
     var workerValue = options.GetValueOrDefault("--workers", "4");
+    var checkpointPath = options.GetValueOrDefault("--checkpoint", "output/checkpoint.json");
+    var reportPath = options.GetValueOrDefault("--report", "output/migration-report.json");
     if (!int.TryParse(workerValue, out var workerCount) || workerCount <= 0)
     {
         throw new ArgumentException("The --workers option must be a positive integer.");
+    }
+
+    if (!string.Equals(checkpointPath, "none", StringComparison.OrdinalIgnoreCase)
+        && string.Equals(
+            Path.GetFullPath(checkpointPath),
+            Path.GetFullPath(reportPath),
+            StringComparison.Ordinal))
+    {
+        throw new ArgumentException("Checkpoint and report paths must be different.");
     }
 
     var dataSet = await new EvDataSetLoader().LoadAsync(sourcePath);
@@ -108,13 +128,18 @@ static async Task<int> RunMigrateAsync(string[] commandArguments)
         BaseAddress = new Uri($"{apiUrl.TrimEnd('/')}/"),
         Timeout = TimeSpan.FromSeconds(10)
     };
+    using var checkpointStore = string.Equals(checkpointPath, "none", StringComparison.OrdinalIgnoreCase)
+        ? null
+        : new JsonCheckpointStore(checkpointPath);
     var report = await new MigrationEngine().MigrateAsync(
         dataSet,
         discovery,
         sourceRoot,
         new StorionXHttpClient(httpClient),
-        new MigrationOptions { WorkerCount = workerCount });
+        new MigrationOptions { WorkerCount = workerCount },
+        checkpointStore);
 
+    await new JsonAuditReportWriter().WriteAsync(reportPath, report);
     Console.WriteLine(JsonSerializer.Serialize(report, EvJson.Options));
     return report.FailedItemCount == 0 ? 0 : 1;
 }
@@ -152,5 +177,5 @@ static void PrintUsage()
     Console.WriteLine("  generate [--output <directory>]");
     Console.WriteLine("  discover [--source <ev-data.json>] [--mapping <target-archives.json>]");
     Console.WriteLine("  rehydrate --item <item-id> [--source <ev-data.json>]");
-    Console.WriteLine("  migrate [--source <ev-data.json>] [--mapping <target-archives.json>] [--api <url>] [--workers <count>]");
+    Console.WriteLine("  migrate [--source <ev-data.json>] [--mapping <target-archives.json>] [--api <url>] [--workers <count>] [--checkpoint <path|none>] [--report <path>]");
 }
