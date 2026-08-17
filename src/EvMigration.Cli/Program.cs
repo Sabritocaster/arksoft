@@ -87,10 +87,15 @@ static async Task<int> RunRehydrateAsync(string[] commandArguments)
 
 static async Task<int> RunMigrateAsync(string[] commandArguments)
 {
-    var options = ParseOptions(commandArguments, "--source", "--mapping", "--api");
+    var options = ParseOptions(commandArguments, "--source", "--mapping", "--api", "--workers");
     var sourcePath = options.GetValueOrDefault("--source", "samples/generated/ev-data.json");
     var mappingPath = options.GetValueOrDefault("--mapping", "samples/target-archives.json");
     var apiUrl = options.GetValueOrDefault("--api", "http://127.0.0.1:5099");
+    var workerValue = options.GetValueOrDefault("--workers", "4");
+    if (!int.TryParse(workerValue, out var workerCount) || workerCount <= 0)
+    {
+        throw new ArgumentException("The --workers option must be a positive integer.");
+    }
 
     var dataSet = await new EvDataSetLoader().LoadAsync(sourcePath);
     var targetMap = await new TargetArchiveMapLoader().LoadAsync(mappingPath);
@@ -107,7 +112,8 @@ static async Task<int> RunMigrateAsync(string[] commandArguments)
         dataSet,
         discovery,
         sourceRoot,
-        new StorionXHttpClient(httpClient));
+        new StorionXHttpClient(httpClient),
+        new MigrationOptions { WorkerCount = workerCount });
 
     Console.WriteLine(JsonSerializer.Serialize(report, EvJson.Options));
     return report.FailedItemCount == 0 ? 0 : 1;
@@ -146,5 +152,5 @@ static void PrintUsage()
     Console.WriteLine("  generate [--output <directory>]");
     Console.WriteLine("  discover [--source <ev-data.json>] [--mapping <target-archives.json>]");
     Console.WriteLine("  rehydrate --item <item-id> [--source <ev-data.json>]");
-    Console.WriteLine("  migrate [--source <ev-data.json>] [--mapping <target-archives.json>] [--api <url>]");
+    Console.WriteLine("  migrate [--source <ev-data.json>] [--mapping <target-archives.json>] [--api <url>] [--workers <count>]");
 }

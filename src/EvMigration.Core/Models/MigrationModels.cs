@@ -19,6 +19,8 @@ public sealed record MigrationFailure(
 
 public sealed record MigrationReport
 {
+    public required int WorkerCount { get; init; }
+
     public required int ScannedItemCount { get; init; }
 
     public required int PendingMappingItemCount { get; init; }
