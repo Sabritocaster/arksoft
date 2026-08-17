@@ -1,6 +1,7 @@
 using System.Text.Json;
 using EvMigration.Core.Discovery;
 using EvMigration.Core.Mock;
+using EvMigration.Core.Rehydration;
 using EvMigration.Core.Serialization;
 
 if (args.Length == 0 || args[0] is "--help" or "-h")
@@ -15,6 +16,7 @@ try
     {
         "generate" => await RunGenerateAsync(args[1..]),
         "discover" => await RunDiscoverAsync(args[1..]),
+        "rehydrate" => await RunRehydrateAsync(args[1..]),
         _ => UnknownCommand(args[0])
     };
 }
@@ -50,6 +52,36 @@ static async Task<int> RunDiscoverAsync(string[] commandArguments)
     return 0;
 }
 
+static async Task<int> RunRehydrateAsync(string[] commandArguments)
+{
+    var options = ParseOptions(commandArguments, "--source", "--item");
+    var sourcePath = options.GetValueOrDefault("--source", "samples/generated/ev-data.json");
+    if (!options.TryGetValue("--item", out var itemId))
+    {
+        throw new ArgumentException("The --item option is required.");
+    }
+
+    var dataSet = await new EvDataSetLoader().LoadAsync(sourcePath);
+    var item = dataSet.Items.SingleOrDefault(
+        candidate => string.Equals(candidate.ItemId, itemId, StringComparison.Ordinal))
+        ?? throw new InvalidDataException($"Item '{itemId}' was not found.");
+    var sourceRoot = Path.GetDirectoryName(Path.GetFullPath(sourcePath))
+        ?? throw new InvalidDataException("Source catalog directory could not be resolved.");
+    var rehydrator = new SisRehydrator(sourceRoot, dataSet.SisParts);
+    var result = await rehydrator.RehydrateAsync(item);
+
+    Console.WriteLine(JsonSerializer.Serialize(new
+    {
+        result.ItemId,
+        ContentBytes = result.Content.LongLength,
+        result.ContentSha256,
+        PartCount = result.Parts.Count,
+        rehydrator.PhysicalReadCount,
+        rehydrator.CachedPartCount
+    }, EvJson.Options));
+    return 0;
+}
+
 static Dictionary<string, string> ParseOptions(string[] arguments, params string[] allowedOptions)
 {
     var allowed = allowedOptions.ToHashSet(StringComparer.Ordinal);
@@ -82,4 +114,5 @@ static void PrintUsage()
     Console.WriteLine("Usage:");
     Console.WriteLine("  generate [--output <directory>]");
     Console.WriteLine("  discover [--source <ev-data.json>] [--mapping <target-archives.json>]");
+    Console.WriteLine("  rehydrate --item <item-id> [--source <ev-data.json>]");
 }
