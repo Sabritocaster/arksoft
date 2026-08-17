@@ -33,6 +33,8 @@ public sealed class MigrationEngine
                 "Worker count must be greater than zero.");
         }
 
+        options.Filter.Validate();
+
         var archives = dataSet.Archives.ToDictionary(archive => archive.ArchiveId, StringComparer.Ordinal);
         var targets = discovery.Archives
             .Where(archive => archive.Status == ArchiveMappingStatus.Mapped)
@@ -43,9 +45,42 @@ public sealed class MigrationEngine
         var rehydrator = new SisRehydrator(sourceRoot, dataSet.SisParts);
         var transformer = new StorionXTransformer();
         var failures = new ConcurrentBag<MigrationFailure>();
-        var eligibleItems = dataSet.Items
+        var selectedItems = dataSet.Items
+            .Where(options.Filter.Matches)
+            .ToArray();
+        var eligibleItems = selectedItems
             .Where(item => targets.ContainsKey(item.ArchiveId))
             .ToArray();
+        var plannedBytes = eligibleItems.Sum(item => item.SizeBytes);
+
+        if (options.DryRun)
+        {
+            return new MigrationReport
+            {
+                RunId = runId,
+                StartedAtUtc = startedAtUtc,
+                CompletedAtUtc = DateTimeOffset.UtcNow,
+                WorkerCount = options.WorkerCount,
+                DryRun = true,
+                ScannedItemCount = dataSet.Items.Count,
+                FilteredOutItemCount = dataSet.Items.Count - selectedItems.Length,
+                EligibleItemCount = eligibleItems.Length,
+                PendingMappingItemCount = selectedItems.Length - eligibleItems.Length,
+                CheckpointSkippedItemCount = 0,
+                AttemptedItemCount = 0,
+                UploadedItemCount = 0,
+                ExistingItemCount = 0,
+                FailedItemCount = 0,
+                RetryCount = 0,
+                MigratedBytes = 0,
+                PlannedBytes = plannedBytes,
+                PhysicalSisReads = 0,
+                CachedSisParts = 0,
+                ErrorBreakdown = new Dictionary<string, int>(),
+                Failures = []
+            };
+        }
+
         if (checkpointStore is not null)
         {
             await checkpointStore.InitializeAsync(cancellationToken);
@@ -143,8 +178,11 @@ public sealed class MigrationEngine
             StartedAtUtc = startedAtUtc,
             CompletedAtUtc = DateTimeOffset.UtcNow,
             WorkerCount = options.WorkerCount,
+            DryRun = false,
             ScannedItemCount = dataSet.Items.Count,
-            PendingMappingItemCount = dataSet.Items.Count - eligibleItems.Length,
+            FilteredOutItemCount = dataSet.Items.Count - selectedItems.Length,
+            EligibleItemCount = eligibleItems.Length,
+            PendingMappingItemCount = selectedItems.Length - eligibleItems.Length,
             CheckpointSkippedItemCount = eligibleItems.Length - migrationItems.Length,
             AttemptedItemCount = migrationItems.Length,
             UploadedItemCount = uploaded,
@@ -152,6 +190,7 @@ public sealed class MigrationEngine
             FailedItemCount = failures.Count,
             RetryCount = retryCount,
             MigratedBytes = migratedBytes,
+            PlannedBytes = plannedBytes,
             PhysicalSisReads = rehydrator.PhysicalReadCount,
             CachedSisParts = rehydrator.CachedPartCount,
             ErrorBreakdown = orderedFailures

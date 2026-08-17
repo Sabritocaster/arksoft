@@ -29,7 +29,13 @@ public sealed record MigrationReport
 
     public required int WorkerCount { get; init; }
 
+    public required bool DryRun { get; init; }
+
     public required int ScannedItemCount { get; init; }
+
+    public required int FilteredOutItemCount { get; init; }
+
+    public required int EligibleItemCount { get; init; }
 
     public required int PendingMappingItemCount { get; init; }
 
@@ -46,6 +52,8 @@ public sealed record MigrationReport
     public required int RetryCount { get; init; }
 
     public required long MigratedBytes { get; init; }
+
+    public required long PlannedBytes { get; init; }
 
     public required int PhysicalSisReads { get; init; }
 

@@ -172,6 +172,72 @@ public sealed class MigrationEngineTests
         }
     }
 
+    [Fact]
+    public async Task MigrateAsync_DryRunAppliesFiltersWithoutReadingOrUploading()
+    {
+        var fixture = await CreateFixtureAsync();
+
+        try
+        {
+            var discovery = new ArchiveDiscoveryService().Discover(
+                fixture.DataSet,
+                CreateTargetMap());
+            var client = new RecordingClient();
+
+            var report = await new MigrationEngine().MigrateAsync(
+                fixture.DataSet,
+                discovery,
+                fixture.OutputPath,
+                client,
+                new MigrationOptions
+                {
+                    DryRun = true,
+                    Filter = new MigrationFilter
+                    {
+                        ArchiveId = "A1",
+                        FolderPrefix = "Inbox"
+                    }
+                });
+
+            Assert.True(report.DryRun);
+            Assert.Equal(1, report.EligibleItemCount);
+            Assert.Equal(5, report.FilteredOutItemCount);
+            Assert.Equal(132, report.PlannedBytes);
+            Assert.Equal(0, report.AttemptedItemCount);
+            Assert.Equal(0, report.PhysicalSisReads);
+            Assert.Empty(client.Requests);
+        }
+        finally
+        {
+            Directory.Delete(fixture.OutputPath, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void MigrationFilter_UsesAnInclusiveDateRange()
+    {
+        var item = new EvItem
+        {
+            ItemId = "I1",
+            ArchiveId = "A1",
+            FolderPath = "Inbox",
+            Subject = "Test",
+            SentDate = DateTimeOffset.Parse("2021-03-04T09:12:00Z"),
+            From = "sender@contoso.com",
+            To = ["recipient@contoso.com"],
+            ContentParts = [],
+            RetentionCategory = "7y",
+            SizeBytes = 0
+        };
+        var filter = new MigrationFilter
+        {
+            FromInclusive = item.SentDate,
+            ToInclusive = item.SentDate
+        };
+
+        Assert.True(filter.Matches(item));
+    }
+
     private static async Task<MigrationFixture> CreateFixtureAsync()
     {
         var outputPath = Path.Combine(Path.GetTempPath(), $"ev-migration-tests-{Guid.NewGuid():N}");

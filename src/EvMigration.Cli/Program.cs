@@ -1,9 +1,11 @@
+using System.Globalization;
 using System.Text.Json;
 using EvMigration.Core.Discovery;
 using EvMigration.Core.Ingestion;
 using EvMigration.Core.Migration;
 using EvMigration.Core.Mock;
 using EvMigration.Core.Persistence;
+using EvMigration.Core.Reconciliation;
 using EvMigration.Core.Rehydration;
 using EvMigration.Core.Reporting;
 using EvMigration.Core.Serialization;
@@ -22,6 +24,7 @@ try
         "discover" => await RunDiscoverAsync(args[1..]),
         "rehydrate" => await RunRehydrateAsync(args[1..]),
         "migrate" => await RunMigrateAsync(args[1..]),
+        "reconcile" => await RunReconcileAsync(args[1..]),
         _ => UnknownCommand(args[0])
     };
 }
@@ -89,6 +92,7 @@ static async Task<int> RunRehydrateAsync(string[] commandArguments)
 
 static async Task<int> RunMigrateAsync(string[] commandArguments)
 {
+    var dryRun = ExtractFlag(ref commandArguments, "--dry-run");
     var options = ParseOptions(
         commandArguments,
         "--source",
@@ -96,13 +100,18 @@ static async Task<int> RunMigrateAsync(string[] commandArguments)
         "--api",
         "--workers",
         "--checkpoint",
-        "--report");
+        "--report",
+        "--from",
+        "--to",
+        "--archive",
+        "--folder");
     var sourcePath = options.GetValueOrDefault("--source", "samples/generated/ev-data.json");
     var mappingPath = options.GetValueOrDefault("--mapping", "samples/target-archives.json");
     var apiUrl = options.GetValueOrDefault("--api", "http://127.0.0.1:5099");
     var workerValue = options.GetValueOrDefault("--workers", "4");
     var checkpointPath = options.GetValueOrDefault("--checkpoint", "output/checkpoint.json");
     var reportPath = options.GetValueOrDefault("--report", "output/migration-report.json");
+    var filter = CreateFilter(options);
     if (!int.TryParse(workerValue, out var workerCount) || workerCount <= 0)
     {
         throw new ArgumentException("The --workers option must be a positive integer.");
@@ -136,12 +145,108 @@ static async Task<int> RunMigrateAsync(string[] commandArguments)
         discovery,
         sourceRoot,
         new StorionXHttpClient(httpClient),
-        new MigrationOptions { WorkerCount = workerCount },
+        new MigrationOptions
+        {
+            WorkerCount = workerCount,
+            DryRun = dryRun,
+            Filter = filter
+        },
         checkpointStore);
 
     await new JsonAuditReportWriter().WriteAsync(reportPath, report);
     Console.WriteLine(JsonSerializer.Serialize(report, EvJson.Options));
     return report.FailedItemCount == 0 ? 0 : 1;
+}
+
+static async Task<int> RunReconcileAsync(string[] commandArguments)
+{
+    var options = ParseOptions(
+        commandArguments,
+        "--source",
+        "--mapping",
+        "--api",
+        "--report",
+        "--from",
+        "--to",
+        "--archive",
+        "--folder");
+    var sourcePath = options.GetValueOrDefault("--source", "samples/generated/ev-data.json");
+    var mappingPath = options.GetValueOrDefault("--mapping", "samples/target-archives.json");
+    var apiUrl = options.GetValueOrDefault("--api", "http://127.0.0.1:5099");
+    var reportPath = options.GetValueOrDefault("--report", "output/reconciliation-report.json");
+    var filter = CreateFilter(options);
+
+    var dataSet = await new EvDataSetLoader().LoadAsync(sourcePath);
+    var targetMap = await new TargetArchiveMapLoader().LoadAsync(mappingPath);
+    var discovery = new ArchiveDiscoveryService().Discover(dataSet, targetMap);
+    var sourceRoot = Path.GetDirectoryName(Path.GetFullPath(sourcePath))
+        ?? throw new InvalidDataException("Source catalog directory could not be resolved.");
+
+    using var httpClient = new HttpClient
+    {
+        BaseAddress = new Uri($"{apiUrl.TrimEnd('/')}/"),
+        Timeout = TimeSpan.FromSeconds(10)
+    };
+    var targetState = await new StorionXHttpClient(httpClient).GetStateAsync();
+    var report = await new ReconciliationService().ReconcileAsync(
+        dataSet,
+        discovery,
+        sourceRoot,
+        targetState,
+        filter);
+
+    await new JsonAuditReportWriter().WriteAsync(reportPath, report);
+    Console.WriteLine(JsonSerializer.Serialize(report, EvJson.Options));
+    return report.IsReconciled ? 0 : 1;
+}
+
+static MigrationFilter CreateFilter(IReadOnlyDictionary<string, string> options)
+{
+    var filter = new MigrationFilter
+    {
+        FromInclusive = ParseDate(options, "--from"),
+        ToInclusive = ParseDate(options, "--to"),
+        ArchiveId = options.GetValueOrDefault("--archive"),
+        FolderPrefix = options.GetValueOrDefault("--folder")
+    };
+    filter.Validate();
+    return filter;
+}
+
+static DateTimeOffset? ParseDate(IReadOnlyDictionary<string, string> options, string name)
+{
+    if (!options.TryGetValue(name, out var value))
+    {
+        return null;
+    }
+
+    if (!DateTimeOffset.TryParse(
+        value,
+        CultureInfo.InvariantCulture,
+        DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+        out var result))
+    {
+        throw new ArgumentException($"The {name} option must be a valid ISO-8601 date.");
+    }
+
+    return result;
+}
+
+static bool ExtractFlag(ref string[] arguments, string flag)
+{
+    var count = arguments.Count(argument => argument == flag);
+    if (count > 1)
+    {
+        throw new ArgumentException($"Duplicate flag: {flag}");
+    }
+
+    if (count == 0)
+    {
+        return false;
+    }
+
+    arguments = arguments.Where(argument => argument != flag).ToArray();
+    return true;
 }
 
 static Dictionary<string, string> ParseOptions(string[] arguments, params string[] allowedOptions)
@@ -177,5 +282,6 @@ static void PrintUsage()
     Console.WriteLine("  generate [--output <directory>]");
     Console.WriteLine("  discover [--source <ev-data.json>] [--mapping <target-archives.json>]");
     Console.WriteLine("  rehydrate --item <item-id> [--source <ev-data.json>]");
-    Console.WriteLine("  migrate [--source <ev-data.json>] [--mapping <target-archives.json>] [--api <url>] [--workers <count>] [--checkpoint <path|none>] [--report <path>]");
+    Console.WriteLine("  migrate [--dry-run] [--from <date>] [--to <date>] [--archive <id>] [--folder <path>] [--workers <count>]");
+    Console.WriteLine("  reconcile [--from <date>] [--to <date>] [--archive <id>] [--folder <path>] [--api <url>]");
 }

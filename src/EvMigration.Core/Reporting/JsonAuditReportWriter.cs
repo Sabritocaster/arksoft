@@ -13,4 +13,13 @@ public sealed class JsonAuditReportWriter
         ArgumentNullException.ThrowIfNull(report);
         return AtomicJsonFile.WriteAsync(reportPath, report, cancellationToken);
     }
+
+    public Task WriteAsync(
+        string reportPath,
+        ReconciliationReport report,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        return AtomicJsonFile.WriteAsync(reportPath, report, cancellationToken);
+    }
 }

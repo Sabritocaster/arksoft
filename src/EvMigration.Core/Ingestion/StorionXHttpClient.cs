@@ -89,6 +89,26 @@ public sealed class StorionXHttpClient : IStorionXClient
             Error: "storionX could not be reached after all retry attempts.");
     }
 
+    public async Task<StorionXStateSnapshot> GetStateAsync(
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await _httpClient.GetAsync("state", cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new HttpRequestException(
+                "storionX state could not be read.",
+                null,
+                response.StatusCode);
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        return await JsonSerializer.DeserializeAsync<StorionXStateSnapshot>(
+            stream,
+            EvJson.Options,
+            cancellationToken)
+            ?? throw new InvalidDataException("storionX state response is empty or invalid.");
+    }
+
     private TimeSpan GetRetryDelay(HttpResponseMessage response, int attempt)
     {
         var retryAfter = response.Headers.RetryAfter;
