@@ -18,12 +18,18 @@ public sealed class MockEvDataGeneratorTests
             var result = await new MockEvDataGenerator().GenerateAsync(outputPath);
             var dataSet = await ReadDataSetAsync(result.CatalogPath);
 
-            Assert.Equal(4, dataSet.Archives.Count);
-            Assert.Equal(6, dataSet.Items.Count);
+            Assert.Equal(5, dataSet.Archives.Count);
+            Assert.Equal(7, dataSet.Items.Count);
             Assert.Contains(dataSet.Archives, archive => archive.LegalHold);
             Assert.Contains(
                 dataSet.Archives,
                 archive => archive.OwnerUpn == "former.employee@contoso.com");
+
+            var fsaItem = Assert.Single(
+                dataSet.Items,
+                item => item.ArchiveId == "F1");
+            Assert.Equal(@"\\fileserver\finance\Contracts\signed-contract.pdf", fsaItem.FilePath);
+            Assert.NotNull(fsaItem.FileModifiedAt);
 
             var sharedPart = dataSet.Items
                 .SelectMany(item => item.ContentParts)

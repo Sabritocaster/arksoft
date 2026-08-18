@@ -3,7 +3,8 @@ namespace EvMigration.Core.Models;
 public enum EvArchiveType
 {
     Mailbox,
-    Journal
+    Journal,
+    Fsa
 }
 
 public sealed record EvArchive
@@ -32,6 +33,10 @@ public sealed record EvItem
     public required string From { get; init; }
 
     public required IReadOnlyList<string> To { get; init; }
+
+    public string? FilePath { get; init; }
+
+    public DateTimeOffset? FileModifiedAt { get; init; }
 
     public required IReadOnlyList<string> ContentParts { get; init; }
 

@@ -71,6 +71,7 @@ public sealed class MockStorionXTests
             {
                 SourceArchiveId = "A1",
                 SourceItemId = sourceItemId,
+                ArchiveType = EvArchiveType.Mailbox,
                 FolderPath = "Inbox",
                 Subject = "Test",
                 SentDate = DateTimeOffset.Parse("2021-03-04T09:12:00Z"),

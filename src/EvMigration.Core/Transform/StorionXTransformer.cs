@@ -40,11 +40,14 @@ public sealed class StorionXTransformer
             {
                 SourceArchiveId = archive.ArchiveId,
                 SourceItemId = item.ItemId,
+                ArchiveType = archive.Type,
                 FolderPath = item.FolderPath,
                 Subject = item.Subject,
                 SentDate = item.SentDate,
                 From = item.From,
-                To = item.To
+                To = item.To,
+                FilePath = item.FilePath,
+                FileModifiedAt = item.FileModifiedAt
             },
             Retention = new StorionXRetention
             {

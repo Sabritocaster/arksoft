@@ -90,6 +90,13 @@ public sealed class MockEvDataGenerator
             Type = EvArchiveType.Journal,
             OwnerUpn = null,
             LegalHold = true
+        },
+        new()
+        {
+            ArchiveId = "F1",
+            Type = EvArchiveType.Fsa,
+            OwnerUpn = null,
+            LegalHold = false
         }
     ];
 
@@ -160,7 +167,20 @@ public sealed class MockEvDataGenerator
             ["mehmet@contoso.com", "audit@contoso.com"],
             ["P6", "P3", "P8", "P9"],
             "10y",
-            partSizes)
+            partSizes),
+        CreateItem(
+            "F100",
+            "F1",
+            "Finance/Contracts",
+            "signed-contract.pdf",
+            "2020-11-18T14:40:00Z",
+            "",
+            [],
+            ["P8"],
+            "10y",
+            partSizes,
+            @"\\fileserver\finance\Contracts\signed-contract.pdf",
+            "2020-11-18T14:35:00Z")
     ];
 
     private static EvItem CreateItem(
@@ -173,7 +193,9 @@ public sealed class MockEvDataGenerator
         IReadOnlyList<string> to,
         IReadOnlyList<string> contentParts,
         string retentionCategory,
-        IReadOnlyDictionary<string, long> partSizes) =>
+        IReadOnlyDictionary<string, long> partSizes,
+        string? filePath = null,
+        string? fileModifiedAt = null) =>
         new()
         {
             ItemId = itemId,
@@ -183,6 +205,10 @@ public sealed class MockEvDataGenerator
             SentDate = DateTimeOffset.Parse(sentDate, System.Globalization.CultureInfo.InvariantCulture),
             From = from,
             To = to,
+            FilePath = filePath,
+            FileModifiedAt = fileModifiedAt is null
+                ? null
+                : DateTimeOffset.Parse(fileModifiedAt, System.Globalization.CultureInfo.InvariantCulture),
             ContentParts = contentParts,
             RetentionCategory = retentionCategory,
             SizeBytes = contentParts.Sum(partId => partSizes[partId])

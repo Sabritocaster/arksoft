@@ -79,9 +79,9 @@ public sealed class CheckpointTests
                     secondStore);
             }
 
-            Assert.Equal(5, firstReport.UploadedItemCount);
-            Assert.Equal(5, firstClient.Requests.Count);
-            Assert.Equal(5, secondReport.CheckpointSkippedItemCount);
+            Assert.Equal(6, firstReport.UploadedItemCount);
+            Assert.Equal(6, firstClient.Requests.Count);
+            Assert.Equal(6, secondReport.CheckpointSkippedItemCount);
             Assert.Equal(0, secondReport.AttemptedItemCount);
             Assert.Empty(secondClient.Requests);
 
@@ -115,7 +115,11 @@ public sealed class CheckpointTests
                 ["ayse@contoso.com"] = "sx-mailbox-ayse",
                 ["mehmet@contoso.com"] = "sx-mailbox-mehmet"
             },
-            ComplianceArchiveId = "sx-compliance"
+            ComplianceArchiveId = "sx-compliance",
+            FileArchives = new Dictionary<string, string>
+            {
+                ["F1"] = "sx-files-finance"
+            }
         };
 
     private static string CreateTemporaryDirectory()

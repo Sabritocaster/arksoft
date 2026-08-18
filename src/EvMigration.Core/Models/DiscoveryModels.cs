@@ -5,6 +5,9 @@ public sealed record TargetArchiveMap
     public required IReadOnlyDictionary<string, string> UserArchives { get; init; }
 
     public required string ComplianceArchiveId { get; init; }
+
+    public IReadOnlyDictionary<string, string> FileArchives { get; init; } =
+        new Dictionary<string, string>();
 }
 
 public enum ArchiveMappingStatus

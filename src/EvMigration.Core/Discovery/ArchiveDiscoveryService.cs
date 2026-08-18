@@ -10,13 +10,18 @@ public sealed class ArchiveDiscoveryService
         ArgumentNullException.ThrowIfNull(targetMap);
 
         var userTargets = NormalizeUserTargets(targetMap.UserArchives);
+        var fileTargets = NormalizeFileTargets(targetMap.FileArchives);
         var itemsByArchive = dataSet.Items.ToLookup(item => item.ArchiveId, StringComparer.Ordinal);
         var archiveResults = new List<ArchiveDiscoveryResult>(dataSet.Archives.Count);
 
         foreach (var archive in dataSet.Archives)
         {
             var items = itemsByArchive[archive.ArchiveId].ToArray();
-            var mapping = MapArchive(archive, targetMap.ComplianceArchiveId, userTargets);
+            var mapping = MapArchive(
+                archive,
+                targetMap.ComplianceArchiveId,
+                userTargets,
+                fileTargets);
 
             archiveResults.Add(new ArchiveDiscoveryResult
             {
@@ -57,13 +62,21 @@ public sealed class ArchiveDiscoveryService
     private static ArchiveMapping MapArchive(
         EvArchive archive,
         string complianceArchiveId,
-        IReadOnlyDictionary<string, string> userTargets)
+        IReadOnlyDictionary<string, string> userTargets,
+        IReadOnlyDictionary<string, string> fileTargets)
     {
         if (archive.Type == EvArchiveType.Journal)
         {
             return string.IsNullOrWhiteSpace(complianceArchiveId)
                 ? ArchiveMapping.Pending("Compliance archive is not configured.")
                 : ArchiveMapping.Mapped(complianceArchiveId);
+        }
+
+        if (archive.Type == EvArchiveType.Fsa)
+        {
+            return fileTargets.TryGetValue(archive.ArchiveId, out var fileTargetArchiveId)
+                ? ArchiveMapping.Mapped(fileTargetArchiveId)
+                : ArchiveMapping.Pending("File archive was not found in the target mapping.");
         }
 
         if (string.IsNullOrWhiteSpace(archive.OwnerUpn))
@@ -93,6 +106,28 @@ public sealed class ArchiveDiscoveryService
                 || !normalized.TryAdd(upn, target.Value))
             {
                 throw new InvalidDataException("User archive mapping contains an invalid or duplicate UPN.");
+            }
+        }
+
+        return normalized;
+    }
+
+    private static IReadOnlyDictionary<string, string> NormalizeFileTargets(
+        IReadOnlyDictionary<string, string> targets)
+    {
+        if (targets is null)
+        {
+            throw new InvalidDataException("File archive mappings are required.");
+        }
+
+        var normalized = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var target in targets)
+        {
+            if (string.IsNullOrWhiteSpace(target.Key)
+                || string.IsNullOrWhiteSpace(target.Value)
+                || !normalized.TryAdd(target.Key.Trim(), target.Value))
+            {
+                throw new InvalidDataException("File archive mapping contains an invalid or duplicate archive ID.");
             }
         }
 

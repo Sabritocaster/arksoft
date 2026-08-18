@@ -19,10 +19,10 @@ public sealed class ArchiveDiscoveryTests
 
             var report = new ArchiveDiscoveryService().Discover(dataSet, targetMap);
 
-            Assert.Equal(4, report.ArchiveCount);
-            Assert.Equal(3, report.MappedArchiveCount);
+            Assert.Equal(5, report.ArchiveCount);
+            Assert.Equal(4, report.MappedArchiveCount);
             Assert.Equal(1, report.PendingArchiveCount);
-            Assert.Equal(5, report.EligibleItemCount);
+            Assert.Equal(6, report.EligibleItemCount);
             Assert.Equal(1, report.PendingItemCount);
             Assert.Equal(2, report.LegalHoldArchiveCount);
 
@@ -36,6 +36,12 @@ public sealed class ArchiveDiscoveryTests
                 report.Archives,
                 archive => archive.SourceArchiveId == "J1");
             Assert.Equal("sx-compliance", journal.TargetArchiveId);
+
+            var fileArchive = Assert.Single(
+                report.Archives,
+                archive => archive.SourceArchiveId == "F1");
+            Assert.Equal(EvArchiveType.Fsa, fileArchive.ArchiveType);
+            Assert.Equal("sx-files-finance", fileArchive.TargetArchiveId);
         }
         finally
         {
@@ -79,7 +85,11 @@ public sealed class ArchiveDiscoveryTests
                 ["ayse@contoso.com"] = "sx-mailbox-ayse",
                 ["AYSE@CONTOSO.COM"] = "sx-mailbox-other"
             },
-            ComplianceArchiveId = "sx-compliance"
+            ComplianceArchiveId = "sx-compliance",
+            FileArchives = new Dictionary<string, string>
+            {
+                ["F1"] = "sx-files-finance"
+            }
         };
 
         var dataSet = new EvDataSet
@@ -101,7 +111,11 @@ public sealed class ArchiveDiscoveryTests
                 ["ayse@contoso.com"] = "sx-mailbox-ayse",
                 ["mehmet@contoso.com"] = "sx-mailbox-mehmet"
             },
-            ComplianceArchiveId = "sx-compliance"
+            ComplianceArchiveId = "sx-compliance",
+            FileArchives = new Dictionary<string, string>
+            {
+                ["F1"] = "sx-files-finance"
+            }
         };
 
     private static string CreateTemporaryDirectory()

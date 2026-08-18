@@ -1,151 +1,125 @@
 # Enterprise Vault → storionX Migration Design
 
-## Yaklaşım
+## Amaç ve kapsam
 
-Migration aracı EV arşivlerini keşfeder, kullanıcı ve hedef arşiv eşlemesini yapar, SIS parçalarını birleştirir ve içeriği oluşturacağımız mock storionX API'ye gönderir.
+Bu demo, JSON katalog ve SIS blob dosyalarıyla temsil edilen Enterprise Vault verisini mock storionX API'ye taşır.
 
-Temel kurallar:
+Desteklenen archive türleri:
 
-- EV kaynağı salt okunur kullanılır.
-- Retention, legal hold ve özgün metadata korunur.
-- Aynı migration tekrar çalıştırıldığında duplicate oluşmaz.
-- Tek bir hatalı öğe tüm çalışmayı durdurmaz.
-- Kaynak verisi ancak migration doğrulandıktan sonra ayrı bir süreçle temizlenebilir.
-
-## Migration senaryoları
-
-| Senaryo | storionX'teki karşılığı | Amaç |
+| Kaynak | Hedef | Eşleme |
 | --- | --- | --- |
-| Mailbox arşivi | Kullanıcı arşivi | Aktif kullanıcının eski e-postalarını, klasörlerini ve eklerini korumak. |
-| Journal arşivi | Kısıtlı compliance store | Kurum trafiğini denetim, eDiscovery ve yasal gereksinimler için saklamak. |
-| FSA | Dosya/content arşivi | Arşivlenmiş dosyaları yol, tarih ve retention bilgileriyle taşımak. |
-| Sahipsiz arşiv | Bekletme kuyruğu veya orphan arşivi | Veriyi yanlış kullanıcıya bağlamadan operatör kararını beklemek. |
-| Ayrılan kullanıcı / legal export | Pasif kullanıcı arşivi veya dava export'u | Offboarding ve yasal inceleme ihtiyaçlarını karşılamak. |
-| SharePoint arşivi | Site/library bazlı content arşivi | Belge yolu, sürümü, yazarı ve tarihlerini korumak. |
-| SMTP / uygulama arşivi | Kaynak uygulama bazlı arşiv | Exchange dışındaki mesaj ve uygulama verilerini taşımak. |
+| Mailbox | Kullanıcı arşivi | Owner UPN üzerinden |
+| Journal | Compliance arşivi | Tek bir compliance hedefi üzerinden |
+| FSA | Dosya arşivi | Kaynak archive ID üzerinden |
+| Sahipsiz veya eşleşmeyen archive | Bekletilir | Otomatik migration yapılmaz |
 
-## Detaylı akışlar
+Kaynak snapshot salt okunur kullanılır. Uygulama EV verisini, shortcut'ları veya placeholder'ları silmez.
 
-### 1. Mailbox arşivi
+## Veri modeli
 
-1. **Keşif:** Arşivler, öğeler, owner UPN, retention ve legal hold bilgileri okunur.
-2. **Eşleme:** `owner_upn`, storionX kullanıcı arşiviyle eşlenir. Eşleşmeyen arşiv bekletilir ve raporlanır.
-3. **Çıkarma:** Öğenin metadata'sı ve referans verdiği SIS parçaları okunur.
-4. **Rehydration:** Parçalar doğru sırayla birleştirilir; boyut ve SHA-256 değerleri doğrulanır. Ortak parçalar cache'ten okunur.
-5. **Dönüştürme:** Subject, from/to, sent date, klasör yolu, retention ve legal hold hedef modele çevrilir.
-6. **Yükleme:** İçerik idempotency key ile mock API'ye gönderilir. `429/503` yanıtlarında retry uygulanır.
-7. **Doğrulama:** Kaynak ve hedef item sayısı, byte toplamı ve hash değerleri karşılaştırılır.
-8. **Temizlik ve rapor:** Shortcut'lara otomatik dokunulmaz. Sonuçlar JSON rapora yazılır.
+Kaynak katalog üç temel veri içerir:
 
-### 2. Journal arşivi
+- Archive: tür, owner ve legal hold bilgisi
+- Item: mesaj veya dosya metadata'sı, retention ve sıralı SIS part referansları
+- SIS part: blob yolu, boyut ve SHA-256 değeri
 
-1. **Keşif:** Journal arşivleri mailbox arşivlerinden ayrı bulunur.
-2. **Eşleme:** Kullanıcı arşivine değil, erişimi kısıtlı compliance store'a eşlenir.
-3. **Çıkarma:** Özgün mesaj, sender, TO/CC/BCC ve envelope bilgileri alınır.
-4. **Rehydration:** Mesaj gövdesi ve ekler SIS parçalarından oluşturulup hash kontrolünden geçirilir.
-5. **Dönüştürme:** Recipient, capture time, retention ve hold bilgileri compliance kaydına çevrilir.
-6. **Yükleme:** Rate limit ve idempotency kurallarıyla API'ye gönderilir.
-7. **Doğrulama:** Gün/arşiv bazında item, byte ve hash karşılaştırması yapılır.
-8. **Temizlik ve rapor:** Legal hold verisi temizlenmez; sonuç ve chain-of-custody bilgileri raporlanır.
+Mailbox ve journal item'larında sender, recipient, subject, tarih ve klasör yolu tutulur. FSA item'larında ayrıca dosya yolu ve değiştirilme tarihi bulunur.
 
-### 3. FSA
+Hedef archive eşlemeleri `samples/target-archives.json` dosyasında tutulur:
 
-1. **Keşif:** File server, volume, archive point, dosya yolu ve placeholder bilgileri bulunur.
-2. **Eşleme:** Kaynak archive point, storionX content arşiviyle eşlenir.
-3. **Çıkarma:** Dosya içeriği EV arşivinden okunur; placeholder açılarak kontrolsüz recall yapılmaz.
-4. **Rehydration:** SIS parçaları birleştirilir; dosya boyutu ve hash doğrulanır.
-5. **Dönüştürme:** UNC path, dosya adı, zamanlar, ACL özeti ve retention hedef modele çevrilir.
-6. **Yükleme:** Büyük dosyalar byte limitini dikkate alan worker'larla gönderilir.
-7. **Doğrulama:** Dosya sayısı, toplam byte ve içerik hash'leri karşılaştırılır.
-8. **Temizlik ve rapor:** Placeholder silme otomatik yapılmaz; başarısız ve eksik dosyalar ayrıca raporlanır.
+- `user_archives`: UPN → kullanıcı arşivi
+- `compliance_archive_id`: journal hedefi
+- `file_archives`: kaynak FSA archive ID → dosya arşivi
 
-## Mimari
+## Migration akışı
 
 ```mermaid
 flowchart LR
-    EV[(Mock EV JSON + blobs)] --> D[Discovery]
-    D --> M[Mapping]
-    M --> Q[Bounded queue]
-    Q --> E[Extraction]
-    E --> R[Rehydration + SIS cache]
+    EV[(EV JSON + SIS blobs)] --> D[Discovery ve mapping]
+    D --> M[Filtreleme]
+    M --> R[Rehydration ve doğrulama]
     R --> T[Transform]
-    T --> I[Rate limiter + retry]
+    T --> I[Paralel ingestion ve retry]
     I --> API[Mock storionX API]
+    I --> C[(Checkpoint)]
+    I --> P[Migration raporu]
     API --> V[Reconciliation]
-
-    S[(Checkpoint)] <--> Q
-    S <--> I
-    D --> P[JSON report]
-    I --> P
-    V --> P
+    V --> RP[Reconciliation raporu]
 ```
 
-| Bileşen | Görevi |
-| --- | --- |
-| Discovery | Arşivleri ve öğeleri tarar. |
-| Mapping | Kullanıcı, orphan, retention ve legal hold politikalarını uygular. |
-| Extraction | Metadata ve SIS parçalarını kaynaktan okur. |
-| Rehydration | Parçaları birleştirir ve hash doğrular. |
-| Transform | EV öğesini storionX modeline çevirir. |
-| Ingestion | Rate limit, retry ve idempotency ile yükleme yapar. |
-| Checkpoint | Tamamlanan öğeleri saklar ve resume sağlar. |
-| Reporting | Sayım, byte, hata ve doğrulama sonuçlarını üretir. |
+1. JSON katalog belleğe yüklenir.
+2. Mailbox, journal ve FSA archive'ları hedeflerle eşlenir.
+3. Tarih, archive ve klasör filtreleri uygulanır.
+4. Mapping bulunan item'ların SIS parçaları sırasıyla okunur.
+5. Her parçanın boyutu ve SHA-256 değeri doğrulanır. Aynı çalışma içinde ortak parçalar cache'ten kullanılır.
+6. Metadata, retention ve legal hold hedef modeline dönüştürülür.
+7. Item'lar ayarlanabilir worker sayısıyla paralel olarak API'ye gönderilir.
+8. Başarılı item'lar checkpoint'e, çalışma özeti ve hatalar JSON rapora yazılır.
+9. Reconciliation kaynak ve hedef item ID, hedef archive, byte ve içerik hash değerlerini karşılaştırır.
+
+Tek bir item'ın rehydration veya ingestion hatası diğer item'ların işlenmesini durdurmaz.
+
+## FSA akışı
+
+FSA ayrı bir migration motoru kullanmaz. Mailbox ve journal ile aynı akışı paylaşır.
+
+1. FSA archive, kaynak archive ID ile `file_archives` mapping'inde aranır.
+2. Mapping yoksa archive bekletilir ve içindeki item'lar gönderilmez.
+3. Dosyanın SIS parçaları birleştirilir ve doğrulanır.
+4. Dosya yolu, değiştirilme tarihi, retention ve legal hold bilgisi hedef metadata'sına eklenir.
+5. İçerik aynı idempotency, retry, checkpoint ve reconciliation kurallarıyla taşınır.
+
+Placeholder recall veya kaynak dosya temizliği yapılmaz.
 
 ## Mock storionX API
 
-`POST /ingest` şu bilgileri kabul eder:
+`POST /ingest` şunları kabul eder:
 
-- Hedef arşiv kimliği
-- Kaynak archive/item kimliği
-- Sıralı içerik parçaları ve SHA-256 değerleri
-- E-posta veya dosya metadata'sı
-- Retention category ve legal hold bilgisi
-- `Idempotency-Key: ev:{archive_id}:{item_id}` başlığı
+- Hedef archive ID
+- `ev:{archive_id}:{item_id}` biçiminde kaynak item ID
+- Sıralı içerik parçaları, boyutları ve SHA-256 değerleri
+- Mesaj veya dosya metadata'sı
+- Retention category ve legal hold
+- Aynı kaynak item ID'yi taşıyan `Idempotency-Key` başlığı
 
 API davranışı:
 
-- Saniyelik istek ve dakika başına MB limiti uygular; aşılırsa `429` döner.
-- Yapılandırılabilir şekilde yaklaşık `%5` geçici `503` hatası üretir.
-- Aynı idempotency key'i ikinci kez kaydetmez.
-- Aynı SHA-256 değerine sahip SIS parçasını yalnızca bir kez saklar.
-- Doğrulama için yüklenen item'ları ve hedef arşivleri listeler.
+- Saniyelik istek ve dakika başına byte limiti uygular; limit aşımında `429` döner.
+- Yapılandırılabilir şekilde geçici `503` üretir.
+- Aynı idempotency key ve aynı içerik tekrar gönderildiğinde duplicate oluşturmaz.
+- Aynı SHA-256 değerindeki SIS parçasını yalnızca bir kez saklar.
+- `GET /state` ile item, byte ve hash bilgilerini reconciliation için döndürür.
 
-## Temel zorluklar
+## Retry ve devam etme
 
-### SIS ve rehydration
+İstemci `429`, `503` ve bağlantı timeout'larında exponential backoff ve jitter ile tekrar dener. `429` yanıtındaki `Retry-After` değeri dikkate alınır. Kalıcı istemci hataları tekrar denenmez.
 
-Aynı SIS parçası birçok öğede kullanılabilir. Parçalar hash ve boyut kontrolüyle birleştirilir. Tekrar okumayı azaltmak için boyutu sınırlı bir cache kullanılır. Hedef de parça hash'lerine göre yeniden dedup yapar.
+Her başarılı item atomik JSON checkpoint'e yazılır. Aynı komut yeniden çalıştırıldığında checkpoint'teki item'lar atlanır. Checkpoint kullanılmasa bile API idempotency kontrolü duplicate oluşmasını engeller.
 
-### Rate limit ve retry
+## Raporlama ve doğrulama
 
-Bütün worker'lar ortak bir rate limiter kullanır. `429` yanıtında `Retry-After` dikkate alınır. `429`, `503` ve timeout için exponential backoff + jitter uygulanır. Validation ve hash hataları tekrar denenmez.
+Migration raporu şu bilgileri içerir:
 
-### Ölçek ve resume
+- Taranan, filtrelenen, bekletilen ve denenen item sayıları
+- Yeni yüklenen, hedefte zaten bulunan ve başarısız item sayıları
+- Planlanan ve taşınan byte değerleri
+- Retry ve SIS okuma sayıları
+- Hata kategorileri ve başarısız item detayları
 
-Veri belleğe topluca alınmaz; item'lar bounded queue üzerinden işlenir. Her başarılı öğe checkpoint'e yazılır. İş yarıda kesilirse tamamlanan öğeler atlanır ve kalanlar devam eder.
+Reconciliation raporu şunları karşılaştırır:
 
-### Metadata ve chain of custody
+- Kaynak ve hedef item sayısı
+- Kaynak item ID ve hedef archive ID
+- Mantıksal byte değerleri
+- Rehydrate edilmiş içerik SHA-256 değeri
 
-Özgün tarih, klasör/dosya yolu, sender/recipient, retention ve legal hold korunur. Her item için kaynak kimliği, kaynak hash'i, hedef kimliği, deneme sayısı ve UTC işlem zamanı audit raporuna yazılır. İçerik ve kişisel bilgiler loglanmaz.
+Eksik, beklenmeyen veya farklı bir item varsa reconciliation başarısız kabul edilir.
 
-### Mapping ve legal hold
+## Sınırlar
 
-UPN eşleşmeyen veya birden fazla hedefe uyan arşiv otomatik atanmaz. Bekletme kuyruğuna alınır. Legal hold altındaki veri taşınır ve hedefte işaretlenir fakat kaynak temizliğine dahil edilmez.
-
-### Idempotency ve doğrulama
-
-Kaynak archive/item kimliği değişmez idempotency key olarak kullanılır. API isteği kabul edip cevap kaybolsa bile tekrar gönderim duplicate oluşturmaz.
-
-Çalışma sonunda şu değerler karşılaştırılır:
-
-- Taranan, filtrelenen, bekletilen, yüklenen ve başarısız item sayıları
-- Kaynak ve hedef toplam byte değerleri
-- İçerik hash'leri
-- Hata türleri ve retry sayıları
-
-Item sayıları uyuşsa bile byte veya hash farkı varsa migration başarılı kabul edilmez.
-
-## Kaynak temizleme
-
-Migration motoru EV verisini veya shortcut/placeholder'ları silmez. Yalnızca doğrulanmış aday listesi üretir. Temizlik; reconciliation tamamlandıktan, ilgili ekipler onay verdikten ve legal hold kontrol edildikten sonra ayrı bir işlem olarak yapılır.
-
+- Gerçek Enterprise Vault bağlantısı yerine JSON katalog ve blob dosyaları kullanılır.
+- Demo verisi küçük olduğu için katalog ve seçilen item listeleri bellekte tutulur.
+- SIS cache çalışma süresince bellekte tutulur ve boyut limiti yoktur.
+- İçerik parçaları mock API'ye base64 olarak gönderilir.
+- Mock API state'i bellektedir ve uygulama kapanınca silinir.
+- Kaynak temizliği ve placeholder yönetimi bu uygulamanın kapsamı dışındadır.

@@ -3,5 +3,8 @@
     "ayse@contoso.com": "sx-mailbox-ayse",
     "mehmet@contoso.com": "sx-mailbox-mehmet"
   },
-  "compliance_archive_id": "sx-compliance"
+  "compliance_archive_id": "sx-compliance",
+  "file_archives": {
+    "F1": "sx-files-finance"
+  }
 }

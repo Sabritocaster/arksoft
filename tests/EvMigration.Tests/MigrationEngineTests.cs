@@ -46,6 +46,35 @@ public sealed class MigrationEngineTests
     }
 
     [Fact]
+    public async Task Transform_PreservesFsaFileMetadata()
+    {
+        var fixture = await CreateFixtureAsync();
+
+        try
+        {
+            var archive = fixture.DataSet.Archives.Single(candidate => candidate.ArchiveId == "F1");
+            var item = fixture.DataSet.Items.Single(candidate => candidate.ItemId == "F100");
+            var rehydrated = await new SisRehydrator(fixture.OutputPath, fixture.DataSet.SisParts)
+                .RehydrateAsync(item);
+
+            var request = new StorionXTransformer().Transform(
+                archive,
+                item,
+                "sx-files-finance",
+                rehydrated);
+
+            Assert.Equal(EvArchiveType.Fsa, request.Metadata.ArchiveType);
+            Assert.Equal(item.FilePath, request.Metadata.FilePath);
+            Assert.Equal(item.FileModifiedAt, request.Metadata.FileModifiedAt);
+            Assert.Equal(item.RetentionCategory, request.Retention.Category);
+        }
+        finally
+        {
+            Directory.Delete(fixture.OutputPath, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task HttpClient_RetriesAServiceUnavailableResponse()
     {
         var handler = new SequenceHandler(
@@ -88,7 +117,11 @@ public sealed class MigrationEngineTests
                     ["ayse@contoso.com"] = "sx-mailbox-ayse",
                     ["mehmet@contoso.com"] = "sx-mailbox-mehmet"
                 },
-                ComplianceArchiveId = "sx-compliance"
+                ComplianceArchiveId = "sx-compliance",
+                FileArchives = new Dictionary<string, string>
+                {
+                    ["F1"] = "sx-files-finance"
+                }
             };
             var discovery = new ArchiveDiscoveryService().Discover(fixture.DataSet, targetMap);
             var client = new RecordingClient();
@@ -99,13 +132,17 @@ public sealed class MigrationEngineTests
                 fixture.OutputPath,
                 client);
 
-            Assert.Equal(6, report.ScannedItemCount);
+            Assert.Equal(7, report.ScannedItemCount);
             Assert.Equal(1, report.PendingMappingItemCount);
-            Assert.Equal(5, report.UploadedItemCount);
+            Assert.Equal(6, report.UploadedItemCount);
             Assert.Equal(0, report.FailedItemCount);
             Assert.Equal(8, report.PhysicalSisReads);
             Assert.Equal(3, client.Requests.Count(request => request.Retention.LegalHold));
             Assert.DoesNotContain(client.Requests, request => request.Metadata.SourceArchiveId == "A3");
+            Assert.Contains(
+                client.Requests,
+                request => request.Metadata.ArchiveType == EvArchiveType.Fsa
+                           && request.TargetArchiveId == "sx-files-finance");
         }
         finally
         {
@@ -134,7 +171,7 @@ public sealed class MigrationEngineTests
 
             Assert.Equal(2, report.WorkerCount);
             Assert.Equal(2, client.MaximumConcurrency);
-            Assert.Equal(5, report.UploadedItemCount);
+            Assert.Equal(6, report.UploadedItemCount);
         }
         finally
         {
@@ -161,10 +198,10 @@ public sealed class MigrationEngineTests
                 client,
                 new MigrationOptions { WorkerCount = 3 });
 
-            Assert.Equal(5, report.AttemptedItemCount);
-            Assert.Equal(4, report.UploadedItemCount);
+            Assert.Equal(6, report.AttemptedItemCount);
+            Assert.Equal(5, report.UploadedItemCount);
             Assert.Equal(1, report.FailedItemCount);
-            Assert.Equal(5, client.Requests.Count);
+            Assert.Equal(6, client.Requests.Count);
         }
         finally
         {
@@ -201,7 +238,7 @@ public sealed class MigrationEngineTests
 
             Assert.True(report.DryRun);
             Assert.Equal(1, report.EligibleItemCount);
-            Assert.Equal(5, report.FilteredOutItemCount);
+            Assert.Equal(6, report.FilteredOutItemCount);
             Assert.Equal(132, report.PlannedBytes);
             Assert.Equal(0, report.AttemptedItemCount);
             Assert.Equal(0, report.PhysicalSisReads);
@@ -254,7 +291,11 @@ public sealed class MigrationEngineTests
                 ["ayse@contoso.com"] = "sx-mailbox-ayse",
                 ["mehmet@contoso.com"] = "sx-mailbox-mehmet"
             },
-            ComplianceArchiveId = "sx-compliance"
+            ComplianceArchiveId = "sx-compliance",
+            FileArchives = new Dictionary<string, string>
+            {
+                ["F1"] = "sx-files-finance"
+            }
         };
 
     private static StorionXIngestRequest CreateRequest()
@@ -280,6 +321,7 @@ public sealed class MigrationEngineTests
             {
                 SourceArchiveId = "A1",
                 SourceItemId = "I100",
+                ArchiveType = EvArchiveType.Mailbox,
                 FolderPath = "Inbox",
                 Subject = "Test",
                 SentDate = DateTimeOffset.Parse("2021-03-04T09:12:00Z"),

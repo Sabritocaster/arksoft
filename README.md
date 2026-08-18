@@ -4,8 +4,8 @@ Enterprise Vault arşivlerini mock storionX API'ye taşıyan küçük bir C#/.NE
 
 Uygulama şunları gösterir:
 
-- Mailbox ve journal arşivlerini keşfetme
-- Kullanıcı ve compliance arşivi eşleme
+- Mailbox, journal ve FSA arşivlerini keşfetme
+- Kullanıcı, compliance ve dosya arşivi eşleme
 - Orphan arşivleri bekletme
 - SIS parçalarını cache ile birleştirme ve SHA-256 doğrulama
 - Retention, metadata ve legal hold bilgisini koruma
@@ -82,6 +82,7 @@ A1 → sx-mailbox-ayse
 A2 → sx-mailbox-mehmet
 A3 → pending_mapping
 J1 → sx-compliance
+F1 → sx-files-finance
 ```
 
 ### Tek item rehydration
@@ -130,34 +131,34 @@ dotnet run --project src/EvMigration.Cli -- migrate \
 İlk migration:
 
 ```text
-scanned_item_count:          6
-eligible_item_count:         5
+scanned_item_count:          7
+eligible_item_count:         6
 pending_mapping_item_count:  1
-uploaded_item_count:         5
+uploaded_item_count:         6
 failed_item_count:           0
-migrated_bytes:              757
+migrated_bytes:              804
 ```
 
 Aynı checkpoint ile ikinci çalışma:
 
 ```text
 attempted_item_count:           0
-checkpoint_skipped_item_count:  5
+checkpoint_skipped_item_count:  6
 physical_sis_reads:             0
 ```
 
 Reconciliation:
 
 ```text
-expected_item_count:  5
-target_item_count:    5
-matched_item_count:   5
-source_logical_bytes: 757
-target_logical_bytes: 757
+expected_item_count:  6
+target_item_count:    6
+matched_item_count:   6
+source_logical_bytes: 804
+target_logical_bytes: 804
 is_reconciled:        true
 ```
 
-Mock hedefte örnek veri 757 byte iken SIS dedup sonrasında 391 byte olarak saklanır.
+Mock hedefte örnek veri 804 byte iken SIS dedup sonrasında 391 byte olarak saklanır.
 
 ## Hata davranışı
 
@@ -174,7 +175,7 @@ Mock hedefte örnek veri 757 byte iken SIS dedup sonrasında 391 byte olarak sak
 dotnet test Arksoft.EvMigration.sln
 ```
 
-Testler özellikle generator determinism, discovery/mapping, SIS cache ve rehydration, retry, idempotency, paralellik, checkpoint/resume, dry-run ve reconciliation davranışlarını kapsar.
+Testler özellikle generator determinism, mailbox/journal/FSA mapping, SIS cache ve rehydration, retry, idempotency, paralellik, checkpoint/resume, dry-run ve reconciliation davranışlarını kapsar.
 
 ## Varsayımlar ve sınırlar
 
@@ -183,5 +184,3 @@ Testler özellikle generator determinism, discovery/mapping, SIS cache ve rehydr
 - EV kaynağı migration sırasında değişmeyen, salt okunur bir snapshot kabul edilir.
 - Gerçek EV erişimi yerine JSON katalog ve blob dosyaları kullanılır.
 - Kaynak shortcut/placeholder temizliği uygulama tarafından yapılmaz.
-
-

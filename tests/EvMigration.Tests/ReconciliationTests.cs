@@ -24,8 +24,8 @@ public sealed class ReconciliationTests
                 fixture.TargetState);
 
             Assert.True(report.IsReconciled);
-            Assert.Equal(5, report.ExpectedItemCount);
-            Assert.Equal(5, report.MatchedItemCount);
+            Assert.Equal(6, report.ExpectedItemCount);
+            Assert.Equal(6, report.MatchedItemCount);
             Assert.Equal(report.SourceLogicalBytes, report.TargetLogicalBytes);
             Assert.Empty(report.MissingItemIds);
             Assert.Empty(report.Mismatches);
@@ -43,7 +43,7 @@ public sealed class ReconciliationTests
 
         try
         {
-            var changedItems = fixture.TargetState.Items.Take(4).ToArray();
+            var changedItems = fixture.TargetState.Items.Take(5).ToArray();
             changedItems[0] = changedItems[0] with { MessageSha256 = new string('0', 64) };
             var changedState = fixture.TargetState with
             {
@@ -80,7 +80,11 @@ public sealed class ReconciliationTests
                 ["ayse@contoso.com"] = "sx-mailbox-ayse",
                 ["mehmet@contoso.com"] = "sx-mailbox-mehmet"
             },
-            ComplianceArchiveId = "sx-compliance"
+            ComplianceArchiveId = "sx-compliance",
+            FileArchives = new Dictionary<string, string>
+            {
+                ["F1"] = "sx-files-finance"
+            }
         };
         var discovery = new ArchiveDiscoveryService().Discover(dataSet, targetMap);
         var targets = discovery.Archives
