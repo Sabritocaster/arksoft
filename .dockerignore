@@ -1,0 +1,14 @@
+.git
+.gitignore
+.vs
+.next
+**/bin
+**/obj
+**/node_modules
+frontend/out
+demo-data
+output
+samples/generated
+TestResults
+*.user
+*.suo

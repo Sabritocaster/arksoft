@@ -1,0 +1,17 @@
+{$DEMO_DOMAIN::80} {
+    encode zstd gzip
+
+    handle /api/* {
+        reverse_proxy demo-api:8080
+    }
+
+    handle /health {
+        reverse_proxy demo-api:8080
+    }
+
+    handle {
+        root * /srv
+        try_files {path} /index.html
+        file_server
+    }
+}

@@ -3,8 +3,9 @@ namespace StorionX.MockApi;
 public sealed class MockFailureInjector
 {
     private readonly object _gate = new();
-    private readonly Random _random;
+    private Random _random;
     private readonly double _failureRate;
+    private readonly int _randomSeed;
 
     public MockFailureInjector(double failureRate, int randomSeed)
     {
@@ -14,6 +15,7 @@ public sealed class MockFailureInjector
         }
 
         _failureRate = failureRate;
+        _randomSeed = randomSeed;
         _random = new Random(randomSeed);
     }
 
@@ -22,6 +24,14 @@ public sealed class MockFailureInjector
         lock (_gate)
         {
             return _random.NextDouble() < _failureRate;
+        }
+    }
+
+    public void Reset()
+    {
+        lock (_gate)
+        {
+            _random = new Random(_randomSeed);
         }
     }
 }

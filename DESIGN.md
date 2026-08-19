@@ -25,7 +25,7 @@ Kaynak katalog üç temel veri içerir:
 
 Mailbox ve journal item'larında sender, recipient, subject, tarih ve klasör yolu tutulur. FSA item'larında ayrıca dosya yolu ve değiştirilme tarihi bulunur.
 
-Hedef archive eşlemeleri `samples/target-archives.json` dosyasında tutulur:
+Hedef archive eşlemeleri `backend/samples/target-archives.json` dosyasında tutulur:
 
 - `user_archives`: UPN → kullanıcı arşivi
 - `compliance_archive_id`: journal hedefi

@@ -46,6 +46,16 @@ public sealed class MockRateLimiter
         }
     }
 
+    public void Reset()
+    {
+        lock (_gate)
+        {
+            _requests.Clear();
+            _byteUsage.Clear();
+            _usedBytes = 0;
+        }
+    }
+
     private void RemoveExpiredEntries(DateTimeOffset now)
     {
         while (_requests.TryPeek(out var requestTime) && now - requestTime >= RequestWindow)

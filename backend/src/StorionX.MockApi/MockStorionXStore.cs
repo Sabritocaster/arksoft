@@ -76,6 +76,15 @@ public sealed class MockStorionXStore
         }
     }
 
+    public void Reset()
+    {
+        lock (_gate)
+        {
+            _items.Clear();
+            _parts.Clear();
+        }
+    }
+
     private static DecodedRequest ValidateAndDecode(StorionXIngestRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.TargetArchiveId)

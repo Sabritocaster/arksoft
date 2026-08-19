@@ -48,6 +48,24 @@ public sealed class MockStorionXTests
         Assert.True(limiter.TryAcquire(100, now.AddSeconds(1), out _));
     }
 
+    [Fact]
+    public void Reset_ClearsStoredItemsAndRateLimitUsage()
+    {
+        var store = new MockStorionXStore();
+        var limiter = new MockRateLimiter(requestsPerSecond: 1, maxBytesPerMinute: 1_000);
+        var now = DateTimeOffset.Parse("2026-08-15T12:00:00Z");
+
+        store.Ingest("ev:A1:I100", CreateRequest("ev:A1:I100", "shared content"));
+        Assert.True(limiter.TryAcquire(100, now, out _));
+        Assert.False(limiter.TryAcquire(100, now, out _));
+
+        store.Reset();
+        limiter.Reset();
+
+        Assert.Equal(0, store.GetState().ItemCount);
+        Assert.True(limiter.TryAcquire(100, now, out _));
+    }
+
     private static StorionXIngestRequest CreateRequest(string sourceItemId, string content)
     {
         var data = Encoding.UTF8.GetBytes(content);

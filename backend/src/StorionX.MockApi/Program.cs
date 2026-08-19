@@ -90,6 +90,17 @@ app.MapPost("/ingest", (
 
 app.MapGet("/state", (MockStorionXStore store) => Results.Ok(store.GetState()));
 
+app.MapPost("/reset", (
+    MockStorionXStore store,
+    MockRateLimiter rateLimiter,
+    MockFailureInjector failureInjector) =>
+{
+    store.Reset();
+    rateLimiter.Reset();
+    failureInjector.Reset();
+    return Results.NoContent();
+});
+
 app.Run();
 
 public partial class Program;

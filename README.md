@@ -21,6 +21,7 @@ Tasarım kararları için [DESIGN.md](./DESIGN.md) dosyasına bakılabilir.
 - İsteğe bağlı: `curl` ve `jq`
 
 ```bash
+cd backend
 dotnet restore Arksoft.EvMigration.sln
 dotnet build Arksoft.EvMigration.sln
 ```
@@ -58,7 +59,63 @@ dotnet run --project src/EvMigration.Cli -- reconcile \
   --report output/reconciliation-report.json
 ```
 
+## Web demo
+
+Repo, aynı migration motorunu kullanan Next.js/Tailwind dashboard ve küçük bir
+Demo API içerir. Web arayüzünde discovery, dry-run, migration, checkpoint,
+idempotency, hedef dedup ve reconciliation akışları çalıştırılabilir.
+
+Yerel geliştirme için üç terminal kullanın:
+
+```bash
+# Terminal 1: mock hedef
+cd backend
+dotnet run --project src/StorionX.MockApi --urls http://127.0.0.1:5099
+
+# Terminal 2: demo orchestration API
+cd backend
+dotnet run --project src/EvMigration.DemoApi --urls http://127.0.0.1:5100
+
+# Terminal 3: frontend
+cd frontend
+npm install
+NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:5100 npm run dev
+```
+
+Arayüz `http://localhost:3000` adresinde açılır. Demo API ilk başlangıçta
+örnek EV verisini `backend/demo-data/source` altında otomatik üretir. **Demo'yu sıfırla**
+aksiyonu mock hedef state'ini, rate-limit durumunu, checkpoint'i ve raporları
+temizler.
+
+### Docker ile tek komut
+
+Yerel HTTP demo:
+
+```bash
+# Repo kökünde
+cp .env.example .env
+docker compose up -d --build
+```
+
+Varsayılan örnek ayarlarla dashboard `http://localhost:8088` adresindedir.
+
+VPS üzerinde `.env` içindeki `DEMO_DOMAIN` değerini DNS kaydı sunucuya yönlenen
+bir hostname olarak ayarlayın:
+
+```dotenv
+DEMO_DOMAIN=migration-demo.example.com
+HTTP_PORT=80
+HTTPS_PORT=443
+```
+
+Caddy bu durumda HTTPS sertifikasını otomatik yönetir. İnternete açık bir demo
+için `deploy/Caddyfile.auth.example` dosyasındaki Basic Auth örneği kullanılmalıdır.
+Yalnızca gateway portları host'a açılır; Demo API ve mock storionX internal Docker
+ağında kalır.
+
 ## CLI komutları
+
+Aşağıdaki komutlar `backend/` klasöründe çalıştırılır.
 
 ### Veri üretme
 
