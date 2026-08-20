@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using EvMigration.Core.Discovery;
@@ -101,6 +102,38 @@ public sealed class MigrationEngineTests
         Assert.Equal(IngestOutcome.Created, result.Outcome);
         Assert.Equal(2, result.Attempts);
         Assert.Equal([TimeSpan.FromMilliseconds(10)], delays);
+    }
+
+    [Fact]
+    public async Task HttpClient_UsesRetryAfterWhenRateLimited()
+    {
+        var rateLimitedResponse = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+        rateLimitedResponse.Headers.RetryAfter =
+            new RetryConditionHeaderValue(TimeSpan.FromSeconds(3));
+        var handler = new SequenceHandler(
+            rateLimitedResponse,
+            new HttpResponseMessage(HttpStatusCode.Created));
+        using var httpClient = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("http://localhost/")
+        };
+        var delays = new List<TimeSpan>();
+        var client = new StorionXHttpClient(
+            httpClient,
+            maxRetries: 2,
+            initialRetryDelay: TimeSpan.FromMilliseconds(10),
+            delay: (delay, _) =>
+            {
+                delays.Add(delay);
+                return Task.CompletedTask;
+            },
+            jitter: () => 0);
+
+        var result = await client.IngestAsync(CreateRequest());
+
+        Assert.Equal(IngestOutcome.Created, result.Outcome);
+        Assert.Equal(2, result.Attempts);
+        Assert.Equal([TimeSpan.FromSeconds(3)], delays);
     }
 
     [Fact]
